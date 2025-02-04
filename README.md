@@ -17,6 +17,8 @@ options:
   -debug              Debug Mode
 ```
 
+
+
 ## Goals 
 
 Enable recursive LLM searches + RAG to assist with understanding a concept. 
