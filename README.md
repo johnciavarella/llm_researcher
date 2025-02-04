@@ -17,6 +17,10 @@ options:
   -debug              Debug Mode
 ```
 
+Environment and Models 
+:   Create an .env file to setup API keys and models. 
+:   Recommended models depend on your usecase. 
+:   Works with Ollama (local models)
 
 
 ## Goals 
