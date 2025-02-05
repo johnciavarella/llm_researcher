@@ -4,79 +4,85 @@ import os
 from dotenv import load_dotenv
 from openai import OpenAI
 import json
-import re
-from colorama import Fore, Back, Style #Colors
+from colorama import Fore, Back, Style
 from datetime import datetime
-#Setup creds 
-load_dotenv() #Get creds from .env 
-pref_d = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-llm_0_url=os.getenv("Q_URL_ENDPOINT")
-llm_0_key=os.getenv("OPENROUTER_API_KEY")
-llm_0_model=os.getenv("Q_MODEL")
+class LLMConfig:
+    """Configuration class for LLM settings."""
+    def __init__(self, url: str, key: str, model: str):
+        self.url = url
+        self.key = key
+        self.model = model
 
-llm_1_url=os.getenv("R_URL_ENDPOINT")
-llm_1_key=os.getenv("OPENROUTER_API_KEY")
-llm_1_model=os.getenv("R_MODEL")
+def load_config() -> dict[str, LLMConfig]:
+    """Load LLM configurations from environment variables."""
+    load_dotenv()
+    configs = {
+        'llm_0': LLMConfig(
+            os.getenv("Q_URL_ENDPOINT"),
+            os.getenv("OPENROUTER_API_KEY"),
+            os.getenv("Q_MODEL")
+        ),
+        'llm_1': LLMConfig(
+            os.getenv("R_URL_ENDPOINT"),
+            os.getenv("OPENROUTER_API_KEY"),
+            os.getenv("R_MODEL")
+        ),
+        'llm_2': LLMConfig(
+            os.getenv("S_URL_ENDPOINT"),
+            os.getenv("OPENROUTER_API_KEY"),
+            os.getenv("S_MODEL")
+        )
+    }
+    return configs
 
-llm_2_url=os.getenv("S_URL_ENDPOINT")
-llm_2_key=os.getenv("OPENROUTER_API_KEY")
-llm_2_model=os.getenv("S_MODEL")
+class Args:
+    """Command line arguments container."""
+    def __init__(self, cli_query: str | None, n_q: str, n_refine: int, 
+                 o_file: str, o_dir: str, debug_mode: bool):
+        self.cli_query = cli_query
+        self.n_q = n_q
+        self.n_refine = n_refine
+        self.o_file = o_file
+        self.o_dir = o_dir
+        self.debug_mode = debug_mode
 
-global total_summary
-total_summary=""
-
-# Set vars 
-def cli_args():
-    global debug_mode
-    global o_dir
-    global o_file
-    global cli_query
-    global n_q
-    global n_refine
+def cli_args() -> Args:
+    """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Script with debug flag")
-    parser.add_argument("-q",#required=True,
-                        help="Question to research")
-    parser.add_argument("-n_q",default="3",help="N of questions to answer (first refine)")
-    parser.add_argument("-n_refine",type=int,default="3",help="N of refinement iterations")
-    parser.add_argument("-o_dir",default="research/",help="Output Directory")
-    parser.add_argument("-o_file",default="Research",help="Outputfile")
-    parser.add_argument("-debug",action="store_true",help="Debug Mode",)
+    parser.add_argument("-q", help="Question to research")
+    parser.add_argument("-n_q", default="3", help="N of questions to answer (first refine)")
+    parser.add_argument("-n_refine", type=int, default="3", help="N of refinement iterations")
+    parser.add_argument("-o_dir", default="research/", help="Output Directory")
+    parser.add_argument("-o_file", default="Research", help="Outputfile")
+    parser.add_argument("-debug", action="store_true", help="Debug Mode")
     args = parser.parse_args()
 
-    cli_query = args.q
-    n_q = args.n_q
-    n_refine = args.n_refine
-    o_file = args.o_file
-    o_dir = args.o_dir
-    debug_mode = args.debug
-    return cli_query, n_q, n_refine, o_file, o_dir
-
-#Pretty
-def print_red(x):print(Fore.RED+x+Style.RESET_ALL)
-def print_cyan(x):print(Fore.CYAN+x+Style.RESET_ALL)
-
-#outputter
-def write_disk(content):
-    #total_summary=total_summary
-    #total_summary=total_summary+"\n\n\n"+total_summary
-    if not os.path.exists(o_dir):
-        os.makedirs(o_dir)   
-    with open(o_dir+pref_d+"-"+o_file+".md", "a") as file:
-        file.write(content + "\n")
-
-def debug(llm_0_url,llm_0_key,llm_0_model,query):
-    print(
-    "llm_0_url: ",llm_0_url,
-    "llm_0_key: ",llm_0_key,
-    "llm_0_model: ",llm_0_model,
-    "Query: ",query
+    return Args(
+        args.q,
+        args.n_q,
+        args.n_refine,
+        args.o_file,
+        args.o_dir,
+        args.debug
     )
 
-def llm_0(llm_0_url,llm_0_key,llm_0_model,query):
+def print_red(x): print(Fore.RED + x + Style.RESET_ALL)
+def print_cyan(x): print(Fore.CYAN + x + Style.RESET_ALL)
+
+def write_disk(content: str, args: Args) -> None:
+    """Write content to disk with timestamp."""
+    pref_d = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    if not os.path.exists(args.o_dir):
+        os.makedirs(args.o_dir)   
+    with open(args.o_dir + pref_d + "-" + args.o_file + ".md", "a") as file:
+        file.write(content + "\n")
+
+def llm_0(config: LLMConfig, query: str) -> str:
+    """Generate questions using LLM to refine research."""
     client = OpenAI(
-        base_url=llm_0_url,
-        api_key=llm_0_key)
+        base_url=config.url,
+        api_key=config.key)
 
     messages = [{
                 "role": "developer",
@@ -88,17 +94,17 @@ def llm_0(llm_0_url,llm_0_key,llm_0_model,query):
                 }]
 
     completion = client.chat.completions.create(
-        model=llm_0_model, 
+        model=config.model, 
         messages=messages, 
         max_tokens=4500)
     
-    json_results=completion.choices[0].message.content
-    return json_results
+    return completion.choices[0].message.content
 
-def llm_1(llm_1_url,llm_1_key,llm_1_model,q):
+def llm_1(config: LLMConfig, q: str) -> str:
+    """Process and analyze questions using LLM."""
     client = OpenAI(
-        base_url=llm_1_url,
-        api_key=llm_1_key)
+        base_url=config.url,
+        api_key=config.key)
 
     messages = [{
                 "role": "developer",
@@ -110,17 +116,17 @@ def llm_1(llm_1_url,llm_1_key,llm_1_model,q):
                 }]
 
     completion = client.chat.completions.create(
-        model=llm_1_model, 
+        model=config.model, 
         messages=messages, 
         max_tokens=10000)
     
-    json_results=completion.choices[0].message.content
-    return json_results
+    return completion.choices[0].message.content
 
-def llm_2(llm_2_url,llm_2_key,llm_2_model,total_summary):
+def llm_2(config: LLMConfig, total_summary: str) -> str:
+    """Generate summary using LLM."""
     client = OpenAI(
-    base_url=llm_2_url,
-    api_key=llm_2_key)
+        base_url=config.url,
+        api_key=config.key)
 
     messages = [{
                 "role": "developer",
@@ -132,80 +138,70 @@ def llm_2(llm_2_url,llm_2_key,llm_2_model,total_summary):
                 }]
 
     completion = client.chat.completions.create(
-        model=llm_2_model, 
+        model=config.model, 
         messages=messages, 
         max_tokens=10000)
     
-    json_results=completion.choices[0].message.content
-    return json_results
+    return completion.choices[0].message.content
+
+def refine_llm(config: LLMConfig, query: str, n_q: str) -> dict[int, str]:
+    """Generate and return refinement questions."""
+    LLM_QUERY = "I will ask a question. Think deeply about " + n_q + " additional questions that could be asked that would help understand the problem or query better and would aid in a deeper understanding. Respond with each question in JSON format. Do not write any other text except the json. The question is: " + query
+    json_results = llm_0(config, LLM_QUERY)
     
-
-def thought_loop():
-    test=test
-    return
-
-#Refine the ask by asking <number> of clarifying quesitons
-def refine_llm(llm_0_url, llm_0_key, llm_0_model,query,n_q):
-    #Setup Var
-    global refine_llm_hash
-    refine_llm_hash={}
-    # ask LLM for set of X questions to clarify 
-    LLM_QUERY="I will ask a question. Think deeply about "+n_q+" additional questions that could be asked that would help understand the problem or query better and would aid in a deeper understanding. Respond with each question in JSON format. Do not write any other text except the json. The question is: "+query
-    json_results=llm_0(llm_0_url, llm_0_key,llm_0_model,LLM_QUERY)
+    refine_llm_hash = {}
     if json_results:
         for item in json.loads(json_results):
-            refine_llm_hash[item["response"]["id"]]=item["response"]["question"]
+            refine_llm_hash[item["response"]["id"]] = item["response"]["question"]
         print_red("Questions to refine research: ")
         for q in refine_llm_hash:
             print_cyan(refine_llm_hash[q])
     return refine_llm_hash
 
-#Research
-def research_llm(llm_1_url, llm_1_key, llm_1_model,q):
-    #Setup Var
-    global research_llm_hash
-    research_llm_hash={}
-    # ask LLM for set of X questions to clarify 
-    LLM_QUERY=q
+def research_llm(config: LLMConfig, q: str, args: Args) -> str:
+    """Research a specific question and return findings."""
+    LLM_QUERY = q
     print_red(q)
-    llm_output=llm_1(llm_1_url, llm_1_key, llm_1_model,LLM_QUERY)
+    llm_output = llm_1(config, LLM_QUERY)
     print(llm_output)
-    write_disk(llm_output)
-    # ToDo - Add saving to mem to reuse
-    return research_llm_hash
+    write_disk(llm_output, args)
+    return llm_output
 
-#Summarize
-def summarize_llm(llm_2_url, llm_2_key, llm_2_model, llm_2):
-    # ask LLM to summarize 
-    print_red(total_summary)
-    summary=llm_2(llm_2_url, llm_2_key, llm_2_model,total_summary)
-    print(f"# Summary: \n\n"+summary)
-    write_disk(summary)
-    # ToDo - Add saving to mem to reuse
-    return summary 
+def summarize_llm(config: LLMConfig, total_summary: str, args: Args) -> str:
+    """Generate and return a summary of all research."""
+    print_cyan(total_summary)
+    summary = llm_2(config, total_summary)
+    print(f"# Summary: \n\n" + summary)
+    write_disk(summary, args)
+    return summary
 
-# MAIN
-def main():
-    cli_args()
+def main() -> None:
+    """Main execution flow."""
+    args = cli_args()
+    configs = load_config()
     
-    if not cli_query:
-        print("No query provided, use -q <query>")
-        query="What is the greatest LLM"
-    else:
-        query=cli_query
-        
-    refine_llm(llm_0_url, llm_0_key, llm_0_model,query,n_q)
+    query = "What is the greatest LLM" if not args.cli_query else args.cli_query
     
-    #Record Metadata  
-    write_disk(f"Generating Query: {query}\n\nModel_Refine: {llm_0_model} \n Model_Research: {llm_1_model} \n\n")
+    if args.debug_mode:
+        print(f"Query: {query}")
+        print(f"Models: {configs['llm_0'].model}, {configs['llm_1'].model}, {configs['llm_2'].model}")
     
-    for q in refine_llm_hash:
-        #print(refine_llm_hash[q]) #Redundant as it is now printed in the function 
-        if o_dir or o_file:
-            write_disk(f"# Question: {refine_llm_hash[q]}\n\n")
-        research_llm(llm_1_url, llm_1_key, llm_1_model,refine_llm_hash[q])
-    #summarize_llm(llm_2_url, llm_2_key, llm_2_model, total_summary)
+    refine_hash = refine_llm(configs['llm_0'], query, args.n_q)
     
+    write_disk(
+        f"Generating Query: {query}\n\nModel_Refine: {configs['llm_0'].model} \n Model_Research: {configs['llm_1'].model} \n\n",
+        args
+    )
+    
+    total_summary = ""
+    for q in refine_hash:
+        if args.o_dir or args.o_file:
+            write_disk(f"# Question: {refine_hash[q]}\n\n", args)
+        output = research_llm(configs['llm_1'], refine_hash[q], args)
+        total_summary += output + "\n\n"
+    
+    if total_summary:
+        summarize_llm(configs['llm_2'], total_summary, args)
+
 if __name__ == "__main__":
     main()
-    
