@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/local/bin/python3
 import argparse
 import os
 from dotenv import load_dotenv
@@ -70,12 +70,16 @@ def cli_args() -> Args:
 def print_red(x): print(Fore.RED + x + Style.RESET_ALL)
 def print_cyan(x): print(Fore.CYAN + x + Style.RESET_ALL)
 
-def write_disk(content: str, args: Args) -> None:
-    """Write content to disk with timestamp."""
-    pref_d = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+def get_output_file(args: Args) -> str:
+    """Get the output file path with timestamp."""
     if not os.path.exists(args.o_dir):
-        os.makedirs(args.o_dir)   
-    with open(args.o_dir + pref_d + "-" + args.o_file + ".md", "a") as file:
+        os.makedirs(args.o_dir)
+    pref_d = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    return args.o_dir + pref_d + "-" + args.o_file + ".md"
+
+def write_disk(content: str, filepath: str) -> None:
+    """Write content to disk by appending to the specified file."""
+    with open(filepath, "a") as file:
         file.write(content + "\n")
 
 def llm_0(config: LLMConfig, query: str) -> str:
@@ -144,7 +148,7 @@ def llm_2(config: LLMConfig, total_summary: str) -> str:
     
     return completion.choices[0].message.content
 
-def refine_llm(config: LLMConfig, query: str, n_q: str) -> dict[int, str]:
+def refine_llm(config: LLMConfig, query: str, n_q: str, output_file: str) -> dict[int, str]:
     """Generate and return refinement questions."""
     LLM_QUERY = "I will ask a question. Think deeply about " + n_q + " additional questions that could be asked that would help understand the problem or query better and would aid in a deeper understanding. Respond with each question in JSON format. Do not write any other text except the json. The question is: " + query
     json_results = llm_0(config, LLM_QUERY)
@@ -154,25 +158,28 @@ def refine_llm(config: LLMConfig, query: str, n_q: str) -> dict[int, str]:
         for item in json.loads(json_results):
             refine_llm_hash[item["response"]["id"]] = item["response"]["question"]
         print_red("Questions to refine research: ")
+        write_disk("# Refined Questions:\n\n", output_file)
         for q in refine_llm_hash:
             print_cyan(refine_llm_hash[q])
+            write_disk(f"{q}. {refine_llm_hash[q]}\n", output_file)
+        write_disk("\n", output_file)
     return refine_llm_hash
 
-def research_llm(config: LLMConfig, q: str, args: Args) -> str:
+def research_llm(config: LLMConfig, q: str, output_file: str) -> str:
     """Research a specific question and return findings."""
     LLM_QUERY = q
     print_red(q)
     llm_output = llm_1(config, LLM_QUERY)
     print(llm_output)
-    write_disk(llm_output, args)
+    write_disk(llm_output, output_file)
     return llm_output
 
-def summarize_llm(config: LLMConfig, total_summary: str, args: Args) -> str:
+def summarize_llm(config: LLMConfig, total_summary: str, output_file: str) -> str:
     """Generate and return a summary of all research."""
     print_cyan(total_summary)
     summary = llm_2(config, total_summary)
     print(f"# Summary: \n\n" + summary)
-    write_disk(summary, args)
+    write_disk(f"# Summary"+summary, output_file)
     return summary
 
 def main() -> None:
@@ -180,28 +187,31 @@ def main() -> None:
     args = cli_args()
     configs = load_config()
     
+    # Create output file path once at the start
+    output_file = get_output_file(args)
+    
     query = "What is the greatest LLM" if not args.cli_query else args.cli_query
     
     if args.debug_mode:
         print(f"Query: {query}")
         print(f"Models: {configs['llm_0'].model}, {configs['llm_1'].model}, {configs['llm_2'].model}")
     
-    refine_hash = refine_llm(configs['llm_0'], query, args.n_q)
-    
+    # Write initial query and model information
     write_disk(
         f"Generating Query: {query}\n\nModel_Refine: {configs['llm_0'].model} \n Model_Research: {configs['llm_1'].model} \n\n",
-        args
+        output_file
     )
+    
+    refine_hash = refine_llm(configs['llm_0'], query, args.n_q, output_file)
     
     total_summary = ""
     for q in refine_hash:
-        if args.o_dir or args.o_file:
-            write_disk(f"# Question: {refine_hash[q]}\n\n", args)
-        output = research_llm(configs['llm_1'], refine_hash[q], args)
+        write_disk(f"# Question: {refine_hash[q]}\n\n", output_file)
+        output = research_llm(configs['llm_1'], refine_hash[q], output_file)
         total_summary += output + "\n\n"
     
     if total_summary:
-        summarize_llm(configs['llm_2'], total_summary, args)
+        summarize_llm(configs['llm_2'], total_summary, output_file)
 
 if __name__ == "__main__":
     main()
